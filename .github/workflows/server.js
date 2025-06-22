@@ -62,3 +62,14 @@ const io = socketIo(server, {
 });
 
 
+// In server.js
+app.use(helmet()); // Add at top: const helmet = require('helmet');
+
+// Rate limiting
+const rateLimit = require('express-rate-limit');
+app.set('trust proxy', 1); // For Render/Railway
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+}));
+
