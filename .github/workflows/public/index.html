@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Chat</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>Socket.IO Chat</h1>
+            <div class="user-count">
+                <i class="fas fa-users"></i>
+                <span id="user-count">0</span>
+            </div>
+        </div>
+        
+        <div class="user-list-container">
+            <h3>Online Users</h3>
+            <ul id="user-list"></ul>
+        </div>
+        
+        <div class="chat-messages" id="chat-messages"></div>
+        
+        <div class="typing-indicator" id="typing-indicator"></div>
+        
+        <div class="message-input">
+            <input type="text" id="message-input" placeholder="Type your message...">
+            <button id="send-button"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let username = '';
+        
+        // DOM elements
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const chatMessages = document.getElementById('chat-messages');
+        const userList = document.getElementById('user-list');
+        const userCount = document.getElementById('user-count');
+        const typingIndicator = document.getElementById('typing-indicator');
+        
+        let typingTimeout;
+        const TYPING_TIMEOUT_LENGTH = 1500; // 1.5 seconds
+        
+        // Prompt for username
+        while (!username) {
+            username = prompt('Please enter your name:')?.trim();
+            if (!username) alert('You must enter a name to join the chat');
+        }
+        
+        // Join chat
+        socket.emit('new user', username);
+        
+        // Send message
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message) {
+                socket.emit('chat message', message);
+                addMessage(username, message, true);
+                messageInput.value = '';
+                socket.emit('stop typing');
+                clearTimeout(typingTimeout);
+            }
+            messageInput.focus();
+        }
+        
+        // Add message to chat
+        function addMessage(user, msg, isOwn = false) {
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
+            
+            const messageHeader = document.createElement('div');
+            messageHeader.className = 'message-header';
+            messageHeader.textContent = user;
+            
+            const messageBody = document.createElement('div');
+            messageBody.className = 'message-body';
+            messageBody.textContent = msg;
+            
+            const messageTime = document.createElement('div');
+            messageTime.className = 'message-time';
+            messageTime.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            messageElement.appendChild(messageHeader);
+            messageElement.appendChild(messageBody);
+            messageElement.appendChild(messageTime);
+            
+            chatMessages.appendChild(messageElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Update user list
+        function updateUserList(users) {
+            userList.innerHTML = '';
+            users.forEach(user => {
+                const li = document.createElement('li');
+                li.textContent = user;
+                userList.appendChild(li);
+            });
+            userCount.textContent = users.length;
+        }
+        
+        // Event listeners
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        messageInput.addEventListener('input', () => {
+            socket.emit('typing');
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                typingIndicator.textContent = '';
+            }, TYPING_TIMEOUT_LENGTH);
+        });
+        
+        // Socket.io event handlers
+        socket.on('chat message', (data) => {
+            addMessage(data.username, data.message);
+        });
+        
+        socket.on('user joined', (user) => {
+            addSystemMessage(`${user} joined the chat`);
+        });
+        
+        socket.on('user left', (user) => {
+            addSystemMessage(`${user} left the chat`);
+        });
+        
+        socket.on('user list', (users) => {
+            updateUserList(users);
+        });
+        
+        socket.on('typing', (user) => {
+            typingIndicator.textContent = `${user} is typing...`;
+        });
+        
+        // Helper function for system messages
+        function addSystemMessage(msg) {
+            const systemMessage = document.createElement('div');
+            systemMessage.className = 'system-message';
+            systemMessage.textContent = msg;
+            chatMessages.appendChild(systemMessage);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    </script>
+</body>
+</html>
