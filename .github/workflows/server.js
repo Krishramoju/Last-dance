@@ -50,7 +50,8 @@ io.on('connection', (socket) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const PORT = process.env.PORT || 3000; // Always use this for cloud deployment
+server.listen(PORT, '0.0.0.0', () => {  // Add '0.0.0.0' for Render/Railway
+  console.log(`Server running on port ${PORT}`);
 });
+
