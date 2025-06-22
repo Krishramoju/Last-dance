@@ -151,6 +151,11 @@
             chatMessages.appendChild(systemMessage);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+           const socket = io({
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000
+   });
+   
     </script>
 </body>
 </html>
