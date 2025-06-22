@@ -2,12 +2,28 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const helmet = require('helmet'); // Ensure helmet is required
+const rateLimit = require('express-rate-limit');
+
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = socketIo(server, {
+  cors: {
+    origin: "*", // For development only
+    methods: ["GET", "POST"]
+  }
+});
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(helmet()); // Add at the top
+app.set('trust proxy', 1); // For Render/Railway
+
+// Rate limiting
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+}));
 
 // Track users
 let users = new Map();
@@ -54,22 +70,3 @@ const PORT = process.env.PORT || 3000; // Always use this for cloud deployment
 server.listen(PORT, '0.0.0.0', () => {  // Add '0.0.0.0' for Render/Railway
   console.log(`Server running on port ${PORT}`);
 });
-const io = socketIo(server, {
-  cors: {
-    origin: "*", // For development only
-    methods: ["GET", "POST"]
-  }
-});
-
-
-// In server.js
-app.use(helmet()); // Add at top: const helmet = require('helmet');
-
-// Rate limiting
-const rateLimit = require('express-rate-limit');
-app.set('trust proxy', 1); // For Render/Railway
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-}));
-
