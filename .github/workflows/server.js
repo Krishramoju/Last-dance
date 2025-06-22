@@ -54,4 +54,11 @@ const PORT = process.env.PORT || 3000; // Always use this for cloud deployment
 server.listen(PORT, '0.0.0.0', () => {  // Add '0.0.0.0' for Render/Railway
   console.log(`Server running on port ${PORT}`);
 });
+const io = socketIo(server, {
+  cors: {
+    origin: "*", // For development only
+    methods: ["GET", "POST"]
+  }
+});
+
 
