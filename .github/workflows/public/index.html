@@ -4,158 +4,290 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Real-Time Chat</title>
-    <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .message-fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .chat-container {
+            height: calc(100vh - 120px);
+        }
+        .typing-indicator:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+    </style>
 </head>
-<body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <h1>Socket.IO Chat</h1>
-            <div class="user-count">
-                <i class="fas fa-users"></i>
-                <span id="user-count">0</span>
+<body class="bg-gradient-to-br from-indigo-900 to-purple-800 min-h-screen text-gray-100">
+    <div class="container mx-auto max-w-4xl px-4 py-8">
+        <header class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
+                    Socket.IO Chat
+                </h1>
+                <p class="text-indigo-200">Real-time communication made simple</p>
             </div>
-        </div>
-        
-        <div class="user-list-container">
-            <h3>Online Users</h3>
-            <ul id="user-list"></ul>
-        </div>
-        
-        <div class="chat-messages" id="chat-messages"></div>
-        
-        <div class="typing-indicator" id="typing-indicator"></div>
-        
-        <div class="message-input">
-            <input type="text" id="message-input" placeholder="Type your message...">
-            <button id="send-button"><i class="fas fa-paper-plane"></i></button>
+            <div id="connection-status" class="flex items-center">
+                <span class="relative flex h-3 w-3">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                </span>
+                <span class="ml-2 text-sm">Disconnected</span>
+            </div>
+        </header>
+
+        <div class="bg-white/10 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden border border-white/20">
+            <!-- User Info Section (shown before joining) -->
+            <div id="user-info-section" class="p-6">
+                <h2 class="text-xl font-semibold mb-4">Join the Chat</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label for="username" class="block text-sm font-medium mb-1">Your Name</label>
+                        <input type="text" id="username" 
+                               class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                               placeholder="Enter your name">
+                    </div>
+                    <div>
+                        <label for="room" class="block text-sm font-medium mb-1">Room</label>
+                        <input type="text" id="room" 
+                               class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                               placeholder="Enter room name (optional)" value="general">
+                    </div>
+                    <button id="join-btn" 
+                            class="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium py-2 px-4 rounded-lg hover:opacity-90 transition-all transform hover:scale-[1.02] active:scale-[0.98]">
+                        Join Chat
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chat Section (hidden initially) -->
+            <div id="chat-section" class="hidden">
+                <div class="border-b border-white/20 p-4 bg-white/5 flex justify-between items-center">
+                    <h2 id="room-name" class="font-medium"></h2>
+                    <div id="typing-indicator" class="text-sm text-blue-300 italic hidden">
+                        <span class="typing-indicator"></span>
+                    </div>
+                    <div id="active-users" class="text-sm flex items-center">
+                        <span class="w-2 h-2 rounded-full bg-green-400 mr-1.5"></span>
+                        <span id="user-count">1</span> online
+                    </div>
+                </div>
+
+                <!-- Chat messages container -->
+                <div id="messages" class="chat-container overflow-y-auto p-4 space-y-3"></div>
+
+                <!-- Message input area -->
+                <div class="border-t border-white/20 p-4 bg-white/5">
+                    <div class="flex space-x-2">
+                        <input id="message-input" 
+                               type="text" 
+                               placeholder="Type your message..."
+                               class="flex-1 bg-white/10 border border-white/20 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                               disabled>
+                        <button id="send-btn" 
+                                class="bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium py-2 px-6 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                disabled>
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        const socket = io();
-        let username = '';
-        
+        // Connect to Socket.IO server
+        const socket = io({
+            transports: ['websocket'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+        });
+
         // DOM elements
+        const userInfoSection = document.getElementById('user-info-section');
+        const chatSection = document.getElementById('chat-section');
+        const joinBtn = document.getElementById('join-btn');
+        const usernameInput = document.getElementById('username');
+        const roomInput = document.getElementById('room');
+        const messagesContainer = document.getElementById('messages');
         const messageInput = document.getElementById('message-input');
-        const sendButton = document.getElementById('send-button');
-        const chatMessages = document.getElementById('chat-messages');
-        const userList = document.getElementById('user-list');
-        const userCount = document.getElementById('user-count');
+        const sendBtn = document.getElementById('send-btn');
+        const roomNameDisplay = document.getElementById('room-name');
         const typingIndicator = document.getElementById('typing-indicator');
-        
+        const connectionStatus = document.getElementById('connection-status');
+        const userCountDisplay = document.getElementById('user-count');
+
+        // State variables
+        let currentUser = '';
+        let currentRoom = '';
+        let isTyping = false;
         let typingTimeout;
-        const TYPING_TIMEOUT_LENGTH = 1500; // 1.5 seconds
-        
-        // Prompt for username
-        while (!username) {
-            username = prompt('Please enter your name:')?.trim();
-            if (!username) alert('You must enter a name to join the chat');
-        }
-        
-        // Join chat
-        socket.emit('new user', username);
-        
-        // Send message
-        function sendMessage() {
-            const message = messageInput.value.trim();
-            if (message) {
-                socket.emit('chat message', message);
-                addMessage(username, message, true);
-                messageInput.value = '';
-                socket.emit('stop typing');
-                clearTimeout(typingTimeout);
+
+        // Connection status handling
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            connectionStatus.innerHTML = `
+                <span class="relative flex h-3 w-3">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+                <span class="ml-2 text-sm">Connected</span>
+            `;
+            
+            if (currentUser) {
+                // Rejoin room if connection was lost and restored
+                socket.emit('joinRoom', { username: currentUser, room: currentRoom });
             }
-            messageInput.focus();
-        }
-        
-        // Add message to chat
-        function addMessage(user, msg, isOwn = false) {
-            const messageElement = document.createElement('div');
-            messageElement.className = `message ${isOwn ? 'own-message' : ''}`;
-            
-            const messageHeader = document.createElement('div');
-            messageHeader.className = 'message-header';
-            messageHeader.textContent = user;
-            
-            const messageBody = document.createElement('div');
-            messageBody.className = 'message-body';
-            messageBody.textContent = msg;
-            
-            const messageTime = document.createElement('div');
-            messageTime.className = 'message-time';
-            messageTime.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            
-            messageElement.appendChild(messageHeader);
-            messageElement.appendChild(messageBody);
-            messageElement.appendChild(messageTime);
-            
-            chatMessages.appendChild(messageElement);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // Update user list
-        function updateUserList(users) {
-            userList.innerHTML = '';
-            users.forEach(user => {
-                const li = document.createElement('li');
-                li.textContent = user;
-                userList.appendChild(li);
-            });
-            userCount.textContent = users.length;
-        }
-        
-        // Event listeners
-        sendButton.addEventListener('click', sendMessage);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            connectionStatus.innerHTML = `
+                <span class="relative flex h-3 w-3">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                </span>
+                <span class="ml-2 text-sm">Disconnected</span>
+            `;
+        });
+
+        socket.on('connect_error', (err) => {
+            console.log('Connection error:', err);
+        });
+
+        // Join chat room
+        joinBtn.addEventListener('click', () => {
+            const username = usernameInput.value.trim();
+            const room = roomInput.value.trim() || 'general';
+
+            if (!username) {
+                alert('Please enter your name');
+                return;
+            }
+
+            currentUser = username;
+            currentRoom = room;
+
+            socket.emit('joinRoom', { username, room });
+
+            // Update UI
+            userInfoSection.classList.add('hidden');
+            chatSection.classList.remove('hidden');
+            roomNameDisplay.textContent = `Room: ${room}`;
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+        });
+
+        // Send message
+        sendBtn.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 sendMessage();
             }
         });
-        
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message && currentUser && currentRoom) {
+                const messageData = {
+                    username: currentUser,
+                    room: currentRoom,
+                    text: message,
+                    timestamp: new Date().toISOString()
+                };
+                socket.emit('chatMessage', messageData);
+                displayMessage(messageData);
+                messageInput.value = '';
+                socket.emit('stopTyping', currentRoom);
+            }
+        }
+
+        // Typing indicators
         messageInput.addEventListener('input', () => {
-            socket.emit('typing');
+            if (!isTyping && currentRoom) {
+                isTyping = true;
+                socket.emit('typing', { 
+                    username: currentUser, 
+                    room: currentRoom 
+                });
+            }
+
             clearTimeout(typingTimeout);
             typingTimeout = setTimeout(() => {
-                typingIndicator.textContent = '';
-            }, TYPING_TIMEOUT_LENGTH);
+                isTyping = false;
+                socket.emit('stopTyping', currentRoom);
+            }, 1000);
         });
-        
-        // Socket.io event handlers
-        socket.on('chat message', (data) => {
-            addMessage(data.username, data.message);
+
+        // Socket event listeners
+        socket.on('message', (messageData) => {
+            // Don't display own messages here (they're added directly on send)
+            // Only display other users' messages
+            if (messageData.username !== currentUser) {
+                displayMessage(messageData);
+            }
         });
-        
-        socket.on('user joined', (user) => {
-            addSystemMessage(`${user} joined the chat`);
+
+        socket.on('userCount', ({ room, count }) => {
+            if (room === currentRoom) {
+                userCountDisplay.textContent = count;
+            }
         });
-        
-        socket.on('user left', (user) => {
-            addSystemMessage(`${user} left the chat`);
+
+        socket.on('typing', ({ username, room }) => {
+            if (room === currentRoom && username !== currentUser) {
+                typingIndicator.classList.remove('hidden');
+                typingIndicator.innerHTML = `${username} is typing <span class="typing-indicator"></span>`;
+            }
         });
-        
-        socket.on('user list', (users) => {
-            updateUserList(users);
+
+        socket.on('stopTyping', (room) => {
+            if (room === currentRoom) {
+                typingIndicator.classList.add('hidden');
+            }
         });
-        
-        socket.on('typing', (user) => {
-            typingIndicator.textContent = `${user} is typing...`;
-        });
-        
-        // Helper function for system messages
-        function addSystemMessage(msg) {
-            const systemMessage = document.createElement('div');
-            systemMessage.className = 'system-message';
-            systemMessage.textContent = msg;
-            chatMessages.appendChild(systemMessage);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        // Display a message in the chat
+        function displayMessage(messageData) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message-fade-in');
+
+            const isCurrentUser = messageData.username === currentUser;
+            const timestamp = new Date(messageData.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            messageElement.innerHTML = `
+                <div class="flex ${isCurrentUser ? 'justify-end' : 'justify-start'}">
+                    <div class="max-w-xs md:max-w-md lg:max-w-lg rounded-lg ${isCurrentUser ? 'bg-blue-500' : 'bg-gray-700'} p-3">
+                        ${messageData.username === 'ChatBot' ? 
+                            `<p class="text-xs text-center italic mb-1">${messageData.text}</p>` :
+                            `<div class="flex justify-between items-baseline mb-1">
+                                <span class="font-semibold ${isCurrentUser ? 'text-blue-100' : 'text-gray-300'}">
+                                    ${messageData.username}
+                                </span>
+                                <span class="text-xs ${isCurrentUser ? 'text-blue-200' : 'text-gray-400'} ml-2">
+                                    ${timestamp}
+                                </span>
+                            </div>
+                            <p class="${isCurrentUser ? 'text-white' : 'text-gray-200'}">${messageData.text}</p>`
+                        }
+                    </div>
+                </div>
+            `;
+
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
-           const socket = io({
-    reconnectionAttempts: 5,
-    reconnectionDelay: 1000
-   });
-   
     </script>
 </body>
 </html>
